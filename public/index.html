@@ -341,7 +341,6 @@
     const importWalletModal = new bootstrap.Modal('#importWalletModal');
     let walletPublicKey = null;
 
-    // Elementos da interface
     const elements = {
       walletStatus: document.getElementById('walletStatus'),
       walletBalance: document.getElementById('walletBalance'),
@@ -360,10 +359,12 @@
       hunterStatusBadge: document.getElementById('hunterStatusBadge'),
       sniperForm: document.getElementById('sniperForm'),
       snipersTable: document.getElementById('snipersTable'),
-      logConsole: document.getElementById('logConsole')
+      logConsole: document.getElementById('logConsole'),
+      networkSettingsForm: document.getElementById('networkSettingsForm'),
+      clearLogsBtn: document.getElementById('clearLogsBtn')
     };
 
-    // Event Listeners
+    // Listeners
     elements.createWalletBtn.addEventListener('click', async () => {
       const response = await fetch('/api/wallet/create', { method: 'POST' });
       const result = await response.json();
@@ -407,9 +408,7 @@
         })
       });
       const result = await response.json();
-      if (result.success) {
-        alert(`Transferência realizada! TX: ${result.txId}`);
-      }
+      alert(result.success ? `Transferência realizada! TX: ${result.txId}` : `Erro: ${result.message}`);
     });
 
     elements.tradeForm.addEventListener('submit', async (e) => {
@@ -427,17 +426,80 @@
         })
       });
       const result = await response.json();
-      if (result.success) {
-        updateOrdersTable(result.order);
+      if (!result.success) alert(`Erro: ${result.message}`);
+    });
+
+    elements.sniperForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      try {
+        const params = JSON.parse(formData.get('sniperParams') || '{}');
+        const response = await fetch('/api/sniper/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tokenAddress: formData.get('sniperToken'),
+            amount: parseFloat(formData.get('sniperAmount')),
+            params
+          })
+        });
+        const result = await response.json();
+        if (!result.success) alert(`Erro: ${result.message}`);
+      } catch (error) {
+        alert('Parâmetros inválidos! Use JSON.');
       }
     });
 
-    // WebSocket Listeners
+    elements.startHunterBtn.addEventListener('click', async () => {
+      const config = {
+        liquidityThreshold: parseFloat(document.getElementById('liquidityThreshold').value),
+        scanInterval: parseInt(document.getElementById('scanInterval').value) * 1000,
+        maxQuickFlipTokens: parseInt(document.getElementById('maxQuickFlip').value),
+        maxLockedLiquidityTokens: parseInt(document.getElementById('maxLockedLiquidity').value)
+      };
+      const response = await fetch('/api/hunter/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config })
+      });
+      const result = await response.json();
+      if (result.success) {
+        elements.startHunterBtn.disabled = true;
+        elements.stopHunterBtn.disabled = false;
+      }
+    });
+
+    elements.stopHunterBtn.addEventListener('click', async () => {
+      const response = await fetch('/api/hunter/stop', { method: 'POST' });
+      const result = await response.json();
+      if (result.success) {
+        elements.startHunterBtn.disabled = false;
+        elements.stopHunterBtn.disabled = true;
+      }
+    });
+
+    elements.networkSettingsForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const response = await fetch('/api/settings/rpc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rpcUrl: formData.get('rpcUrl'),
+          wssUrl: formData.get('wssUrl')
+        })
+      });
+      const result = await response.json();
+      alert(result.success ? 'Configurações salvas!' : 'Erro ao salvar!');
+    });
+
+    // WebSocket
     socket.on('init', (data) => {
       if (data.wallet) {
         walletPublicKey = data.wallet.publicKey;
         updateWalletInfo();
       }
+      elements.walletBalance.textContent = `${data.balance.toFixed(4)} SOL`;
     });
 
     socket.on('balance_update', ({ balance }) => {
@@ -445,28 +507,7 @@
     });
 
     socket.on('order_update', (order) => {
-      updateOrdersTable(order);
-    });
-
-    socket.on('hunter_status', (status) => {
-      elements.hunterStatusBadge.textContent = status.active ? 'Ativo' : 'Inativo';
-      elements.hunterStatusBadge.className = `badge ${status.active ? 'bg-success' : 'bg-secondary'}`;
-      updateHunterTradesTable(status.activeTrades);
-    });
-
-    socket.on('log', (message) => {
-      elements.logConsole.innerHTML += message + '\n';
-      elements.logConsole.scrollTop = elements.logConsole.scrollHeight;
-    });
-
-    // Funções auxiliares
-    function updateWalletInfo() {
-      elements.walletStatus.textContent = walletPublicKey;
-      elements.walletStatus.className = 'text-break text-center';
-    }
-
-    function updateOrdersTable(order) {
-      const row = `
+      elements.ordersTable.insertAdjacentHTML('afterbegin', `
         <tr>
           <td>${order.id}</td>
           <td>${order.action}</td>
@@ -475,12 +516,13 @@
           <td>${order.orderType}</td>
           <td>${order.status}</td>
         </tr>
-      `;
-      elements.ordersTable.insertAdjacentHTML('afterbegin', row);
-    }
+      `);
+    });
 
-    function updateHunterTradesTable(trades) {
-      elements.hunterTradesTable.innerHTML = trades.map(trade => `
+    socket.on('hunter_status', (status) => {
+      elements.hunterStatusBadge.textContent = status.active ? 'Ativo' : 'Inativo';
+      elements.hunterStatusBadge.className = `badge ${status.active ? 'bg-success' : 'bg-secondary'}`;
+      elements.hunterTradesTable.innerHTML = status.activeTrades.map(trade => `
         <tr>
           <td>${trade.token}</td>
           <td>${trade.type}</td>
@@ -491,18 +533,49 @@
           <td>${trade.status}</td>
         </tr>
       `).join('');
+    });
+
+    socket.on('sniper_update', (snipers) => {
+      elements.snipersTable.innerHTML = Object.entries(snipers).map(([id, sniper]) => `
+        <tr>
+          <td>${sniper.tokenAddress}</td>
+          <td>${sniper.amount}</td>
+          <td><span class="badge ${sniper.active ? 'bg-success' : 'bg-secondary'}">${sniper.active ? 'Ativo' : 'Inativo'}</span></td>
+          <td><button class="btn btn-sm btn-danger" onclick="stopSniper('${id}')">Parar</button></td>
+        </tr>
+      `).join('');
+    });
+
+    socket.on('log', (message) => {
+      elements.logConsole.innerHTML += message + '\n';
+      elements.logConsole.scrollTop = elements.logConsole.scrollHeight;
+    });
+
+    // Funções
+    function updateWalletInfo() {
+      elements.walletStatus.textContent = walletPublicKey;
+      elements.walletStatus.className = 'text-break text-center';
     }
 
-    // Inicialização
+    window.stopSniper = async (sniperId) => {
+      const response = await fetch('/api/sniper/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sniperId })
+      });
+      const result = await response.json();
+      if (!result.success) alert(result.message);
+    };
+
+    elements.clearLogsBtn.addEventListener('click', () => {
+      elements.logConsole.innerHTML = '';
+    });
+
     document.getElementById('orderType').addEventListener('change', (e) => {
       elements.priceField.style.display = e.target.value === 'limit' ? 'block' : 'none';
     });
 
-    document.getElementById('clearLogsBtn').addEventListener('click', () => {
-      elements.logConsole.innerHTML = '';
-    });
-
-    // Atualizar saldo inicial
+    // Inicialização
     fetch('/api/wallet/balance')
       .then(res => res.json())
       .then(({ balance }) => {

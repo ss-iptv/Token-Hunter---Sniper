@@ -15,7 +15,6 @@ const { Token, TOKEN_PROGRAM_ID } = require('@solana/spl-token');
 const bs58 = require('bs58');
 const bodyParser = require('body-parser');
 
-// Configurações
 const PORT = process.env.PORT || 3000;
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 
@@ -23,7 +22,6 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Classe principal do bot
 class SolanaTradingBot {
   constructor() {
     this.connection = new Connection(RPC_URL, 'confirmed');
@@ -38,7 +36,6 @@ class SolanaTradingBot {
     this.loadWallet();
   }
 
-  // Métodos da Carteira
   createWallet() {
     try {
       this.keypair = Keypair.generate();
@@ -120,7 +117,6 @@ class SolanaTradingBot {
     }
   }
 
-  // Métodos de Trading
   async executeTrade(action, tokenAddress, amount, orderType = 'market', price = null) {
     if (!this.keypair) {
       return { success: false, message: 'Carteira não carregada' };
@@ -148,9 +144,8 @@ class SolanaTradingBot {
     }
   }
 
-  // Métodos do Sniper
   startSniper(tokenAddress, amount, params = {}) {
-    const sniperId = `sniper_${tokenAddress}_${Date.now()}`;
+    const sniperId = `sniper_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     
     this.sniperBots[sniperId] = {
       tokenAddress,
@@ -176,7 +171,6 @@ class SolanaTradingBot {
     return { success: false, message: 'Sniper não encontrado' };
   }
 
-  // Token Hunter
   startTokenHunter(config = {}) {
     return this.tokenHunter.start(config);
   }
@@ -185,7 +179,6 @@ class SolanaTradingBot {
     return this.tokenHunter.stop();
   }
 
-  // Utilitários
   loadDefaultTokens() {
     this.tokenList = [
       { symbol: 'SOL', address: 'So11111111111111111111111111111111111111112' },
@@ -202,7 +195,6 @@ class SolanaTradingBot {
   }
 }
 
-// Classe Token Hunter
 class TokenHunter {
   constructor(bot) {
     this.bot = bot;
@@ -433,10 +425,8 @@ class TokenHunter {
   }
 }
 
-// Inicialização do bot
 const bot = new SolanaTradingBot();
 
-// Rotas da API
 app.post('/api/wallet/create', (req, res) => {
   const result = bot.createWallet();
   res.json(result);
@@ -510,11 +500,13 @@ app.get('/api/hunter/status', (req, res) => {
 });
 
 app.post('/api/settings/rpc', (req, res) => {
-  bot.connection = new Connection(req.body.rpcUrl, 'confirmed');
+  const { rpcUrl, wssUrl } = req.body;
+  bot.connection = new Connection(rpcUrl, 'confirmed');
+  io.disconnect();
+  io.connect(wssUrl);
   res.json({ success: true });
 });
 
-// WebSocket
 io.on('connection', (socket) => {
   console.log('Novo cliente conectado');
   
@@ -538,7 +530,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Iniciar servidor
 http.listen(PORT, () => {
   console.log(`
   ███████╗ ██████╗ ██╗      █████╗ ███╗   ██╗ █████╗ 
